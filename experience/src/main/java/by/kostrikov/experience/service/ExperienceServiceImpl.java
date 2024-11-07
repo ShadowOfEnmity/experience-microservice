@@ -10,6 +10,7 @@ import by.kostrikov.ws.core.CreateIndustryEvent;
 import by.kostrikov.ws.core.ResponseIndustryEvent;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -29,6 +30,8 @@ public class ExperienceServiceImpl implements ExperienceService {
     private final ExperienceRepository experienceRepository;
     private final ExperienceMapper experienceMapper;
     private final KafkaTemplate<String, CreateIndustryEvent> kafkaTemplate;
+    @Value("${kafka.producer.create.request.topic.name}")
+    private String createTopicName;
 
     private final ConcurrentHashMap<String, CompletableFuture<ResponseIndustryEvent>> pendingIndustryResponses = new ConcurrentHashMap<>();
     private final ConcurrentSkipListSet<String> processedMessageIds = new ConcurrentSkipListSet<>();
@@ -45,7 +48,6 @@ public class ExperienceServiceImpl implements ExperienceService {
     @Transactional
     @Override
     public ExperienceResponseDto saveExperience(ExperienceRequestDto requestDto) {
-        // 1. Создаем IndustryRequestDto и отправляем его через Kafka
         String messageId = UUID.randomUUID().toString();
 
         CreateIndustryEvent createIndustryEvent = new CreateIndustryEvent();
@@ -55,7 +57,7 @@ public class ExperienceServiceImpl implements ExperienceService {
         pendingIndustryResponses.put(messageId, futureResponse);
 
         ProducerRecord<String, CreateIndustryEvent> record = new ProducerRecord<>(
-                "${kafka.producer.create.request.topic.name}",
+                createTopicName,
                 messageId,
                 createIndustryEvent
         );
@@ -63,19 +65,16 @@ public class ExperienceServiceImpl implements ExperienceService {
 
         kafkaTemplate.send(record);
 
-        // 2. Ждем асинхронного ответа от Kafka
         ResponseIndustryEvent industryResponse = futureResponse.join();
 
         IndustryResponseDto industryResponseDto = new IndustryResponseDto();
         industryResponseDto.setId(industryResponse.getId());
         industryResponseDto.setName(industryResponse.getName());
 
-        // 3. Сохраняем Experience с полученным industryId
         Experience experience = experienceMapper.toEntity(requestDto);
         experience.setIndustryId(industryResponseDto.getId());
         Experience savedExperience = experienceRepository.save(experience);
 
-        // 4. Возвращаем DTO ответа
         ExperienceResponseDto response = experienceMapper.toResponseDto(savedExperience);
         response.setIndustry(industryResponseDto);
         return response;
@@ -84,7 +83,6 @@ public class ExperienceServiceImpl implements ExperienceService {
     @KafkaListener(topics = "${kafka.response.topic.name}", groupId = "${spring.kafka.consumer.group-id}", containerFactory = "kafkaListenerContainerFactory")
     @Transactional
     public void handleIndustryResponse(@Header("messageId") String messageId, ResponseIndustryEvent industryResponse) {
-        // Проверка на идемпотентность: обработка только неповторяющихся сообщений
         if (!processedMessageIds.add(messageId)) {
             return;
         }

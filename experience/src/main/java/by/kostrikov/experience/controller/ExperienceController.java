@@ -23,7 +23,6 @@ public class ExperienceController {
 
     @PostMapping("/create")
     public ResponseEntity<ExperienceResponseDto> createExperience(@RequestBody ExperienceRequestDto requestDto) throws ExecutionException, InterruptedException {
-        // Создание experience делегируется слою сервиса
         ExperienceResponseDto experienceResponse = experienceService.saveExperience(requestDto);
         return ResponseEntity.ok(experienceResponse);
     }

@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -24,6 +25,9 @@ import java.util.UUID;
 public class IndustryKafkaListener {
     private final IndustryService industryService;
     private final KafkaTemplate<String, ResponseIndustryEvent> kafkaProducerTemplate;
+
+    @Value("${kafka.response.topic.name}")
+    private String responseTopicName;
 
     public IndustryKafkaListener(@Qualifier("industryServiceImpl") IndustryService industryService, KafkaTemplate<String, ResponseIndustryEvent> kafkaProducerTemplate) {
         this.industryService = industryService;
@@ -42,17 +46,15 @@ public class IndustryKafkaListener {
             return;
         }
 
-        // Создание индустрии
         ResponseIndustryEvent createdIndustry = industryService.createIndustry(CreateIndustryEvent, messageIdUUID);
 
         ProducerRecord<String, ResponseIndustryEvent> record = new ProducerRecord<>(
-                "${kafka.response.topic.name}",
+                responseTopicName,
                 messageId,
                 createdIndustry
         );
         record.headers().add("messageId", messageId.getBytes());
 
-        // Отправка ответа обратно
         kafkaProducerTemplate.send(record);
     }
 
